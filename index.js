@@ -48,7 +48,7 @@ const upload = multer({ storage });
 // If ALLOW_ALL_CORS=true is set in env (use with caution), accept any origin.
 // Otherwise, use FRONTEND_ORIGINS (comma-separated) to restrict allowed origins.
 const allowAll = String(process.env.ALLOW_ALL_CORS).toLowerCase() === "true";
-const allowedOrigins = (process.env.FRONTEND_ORIGINS || "http://localhost:5173")
+const allowedOrigins = (process.env.FRONTEND_ORIGINS || "https://lbbackend.onrender.com")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
@@ -151,6 +151,38 @@ app.get("/health", cors(corsOptions), (req, res) => {
     time: new Date().toISOString(),
     allowedOrigins,
   });
+});
+
+// Global error handler: ensure CORS headers are present on error responses
+// and return a consistent JSON error payload.
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err && (err.stack || err));
+  // Ensure CORS headers if not already set
+  if (!res.getHeader("Access-Control-Allow-Origin")) {
+    if (allowAll) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+    } else if (
+      req.headers.origin &&
+      allowedOrigins.indexOf(req.headers.origin) !== -1
+    ) {
+      res.setHeader("Access-Control-Allow-Origin", req.headers.origin);
+    }
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET,POST,PUT,DELETE,OPTIONS"
+    );
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+
+  if (res.headersSent) return next(err);
+  const status = err && err.status ? err.status : 500;
+  res
+    .status(status)
+    .json({
+      success: false,
+      message: err && err.message ? err.message : "Internal Server Error",
+    });
 });
 
 const PORT = process.env.PORT || 8000;
