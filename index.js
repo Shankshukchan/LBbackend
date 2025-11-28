@@ -1,6 +1,5 @@
 const express = require("express");
 const app = express();
-const cors = require("cors");
 const path = require("path");
 const multer = require("multer"); // add multer
 const fs = require("fs"); // for folder creation
@@ -44,45 +43,15 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Tight CORS configuration: allow only trusted frontend origins
-// Configure allowed origins via FRONTEND_ORIGINS env var (comma-separated),
-// e.g. FRONTEND_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
-const allowedOrigins = (
-  process.env.FRONTEND_ORIGINS || "https://lbbackend.onrender.com"
-)
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow non-browser requests (like curl, Postman) where origin is undefined
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-    // Development convenience: accept any localhost or 127.0.0.1 origin regardless of port
-    try {
-      const parsed = new URL(origin);
-      const hostname = parsed.hostname;
-      if (hostname === "localhost" || hostname === "127.0.0.1") {
-        return callback(null, true);
-      }
-    } catch (err) {
-      // If origin isn't a valid URL for some reason, fall through to blocking
-    }
-
-    // Helpful log for debugging blocked origins
-    console.warn(`Blocked CORS origin: ${origin}`);
-    return callback(
-      new Error("CORS policy: This origin is not allowed - " + origin)
-    );
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-};
-
-app.use(cors(corsOptions));
+// Minimal allow-all CORS middleware (no origin checks)
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 app.use(express.json());
 // Serve images folder statically
 app.use("/images", express.static(imagesDir));
@@ -109,7 +78,7 @@ app.post("/api/users", upload.single("image"), async (req, res) => {
 app.use("/api", router);
 
 // Respond to preflight requests for the upload route explicitly
-app.options("/update-profile", cors(corsOptions));
+// Preflight covered by the allow-all middleware above
 
 // Small logger to debug incoming requests
 const logRequest = (req, res, next) => {
@@ -128,11 +97,11 @@ app.post(
 );
 
 // Health/debug endpoint to verify server and CORS
-app.get("/health", cors(corsOptions), (req, res) => {
+app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     time: new Date().toISOString(),
-    allowedOrigins,
+    allowedOrigins: process.env.FRONTEND_ORIGINS || "*",
   });
 });
 
