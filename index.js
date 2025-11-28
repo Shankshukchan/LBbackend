@@ -44,27 +44,35 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// CORS configuration
-// If ALLOW_ALL_CORS=true is set in env (use with caution), accept any origin.
-// Otherwise, use FRONTEND_ORIGINS (comma-separated) to restrict allowed origins.
-const allowAll = String(process.env.ALLOW_ALL_CORS).toLowerCase() === "true";
-const allowedOrigins = (process.env.FRONTEND_ORIGINS || "https://lbbackend.onrender.com")
+// Tight CORS configuration: allow only trusted frontend origins
+// Configure allowed origins via FRONTEND_ORIGINS env var (comma-separated),
+// e.g. FRONTEND_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+const allowedOrigins = (
+  process.env.FRONTEND_ORIGINS || "https://lbbackend.onrender.com"
+)
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
 
 const corsOptions = {
   origin: function (origin, callback) {
-    if (allowAll) return callback(null, true);
-    // Allow non-browser tools (curl, Postman) where origin is undefined
+    // Allow non-browser requests (like curl, Postman) where origin is undefined
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+    // Development convenience: accept any localhost or 127.0.0.1 origin regardless of port
     try {
       const parsed = new URL(origin);
       const hostname = parsed.hostname;
-      if (hostname === "localhost" || hostname === "127.0.0.1")
+      if (hostname === "localhost" || hostname === "127.0.0.1") {
         return callback(null, true);
-    } catch (err) {}
+      }
+    } catch (err) {
+      // If origin isn't a valid URL for some reason, fall through to blocking
+    }
+
+    // Helpful log for debugging blocked origins
     console.warn(`Blocked CORS origin: ${origin}`);
     return callback(
       new Error("CORS policy: This origin is not allowed - " + origin)
@@ -74,32 +82,7 @@ const corsOptions = {
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 };
 
-// Apply CORS as an early middleware so that preflight and errors include appropriate headers
 app.use(cors(corsOptions));
-
-// Global fallback to ensure CORS headers are present even if later middleware errors
-app.use((req, res, next) => {
-  // If headers already set by cors middleware, skip
-  if (!res.getHeader("Access-Control-Allow-Origin")) {
-    if (allowAll) {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-    } else if (
-      req.headers.origin &&
-      allowedOrigins.indexOf(req.headers.origin) !== -1
-    ) {
-      res.setHeader("Access-Control-Allow-Origin", req.headers.origin);
-    }
-    res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET,POST,PUT,DELETE,OPTIONS"
-    );
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-  }
-  // Respond to preflight quickly
-  if (req.method === "OPTIONS") return res.sendStatus(204);
-  next();
-});
 app.use(express.json());
 // Serve images folder statically
 app.use("/images", express.static(imagesDir));
@@ -151,38 +134,6 @@ app.get("/health", cors(corsOptions), (req, res) => {
     time: new Date().toISOString(),
     allowedOrigins,
   });
-});
-
-// Global error handler: ensure CORS headers are present on error responses
-// and return a consistent JSON error payload.
-app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err && (err.stack || err));
-  // Ensure CORS headers if not already set
-  if (!res.getHeader("Access-Control-Allow-Origin")) {
-    if (allowAll) {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-    } else if (
-      req.headers.origin &&
-      allowedOrigins.indexOf(req.headers.origin) !== -1
-    ) {
-      res.setHeader("Access-Control-Allow-Origin", req.headers.origin);
-    }
-    res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET,POST,PUT,DELETE,OPTIONS"
-    );
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-  }
-
-  if (res.headersSent) return next(err);
-  const status = err && err.status ? err.status : 500;
-  res
-    .status(status)
-    .json({
-      success: false,
-      message: err && err.message ? err.message : "Internal Server Error",
-    });
 });
 
 const PORT = process.env.PORT || 8000;
